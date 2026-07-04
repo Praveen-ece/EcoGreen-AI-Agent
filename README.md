@@ -285,12 +285,6 @@ Frontend detects: Question? → /api/chat → Gemini Q&A
 
 ---
 
-## 📸 Screenshots
-
-> Add screenshots of your running app here.
-
----
-
 ## 🤝 Contributing
 
 1. Fork the repo
