@@ -12,6 +12,7 @@ export interface WebsiteAvailability {
 export interface Alternative {
   productName: string;
   estimatedCarbonFootprint: CarbonFootprint;
+  carbonFootprintKg: number;
   material: string;
   manufacturingCountry: string;
   estimatedShippingImpact: string;
@@ -31,6 +32,7 @@ export interface ProductAnalysis {
     category: string;
     material: string;
     estimatedCarbonFootprint: CarbonFootprint;
+    carbonFootprintKg: number;
     sustainabilityScore: number;
     environmentalConcerns: string[];
   };
@@ -41,4 +43,5 @@ export interface ProductAnalysis {
   };
   greenShoppingTips: string[];
   dataDisclaimer: string;
+  _id?: string;
 }

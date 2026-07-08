@@ -13,7 +13,7 @@ function getModel(systemInstruction: string): GenerativeModel {
     throw new Error('GEMINI_API_KEY is not set. Please add it to backend/.env');
   }
   const genAI = new GoogleGenerativeAI(apiKey);
-  const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash-8b';
   console.log(`[GeminiAgent] Using model: ${modelName}`);
 
   return genAI.getGenerativeModel({
@@ -42,10 +42,37 @@ async function generateText(model: GenerativeModel, prompt: string): Promise<str
   return text;
 }
 
-// ── Web search helper (Tavily or mock fallback) ────────────────────────────────
-async function performWebSearch(query: string): Promise<string> {
-  console.log(`[WebSearch] Querying: "${query}"`);
+// ── Generate Amazon.in and Flipkart search URLs for a product ─────────────────
+function buildShoppingLinks(productName: string): Array<{
+  website: string; price: string; availability: string;
+  link: string; seller: string; estimatedDelivery: string;
+}> {
+  const encoded = encodeURIComponent(productName);
+  return [
+    {
+      website: 'Amazon.in',
+      price: 'Check on site',
+      availability: 'Check on site',
+      link: `https://www.amazon.in/s?k=${encoded}&ref=ecopick`,
+      seller: 'Amazon.in',
+      estimatedDelivery: '2-5 business days',
+    },
+    {
+      website: 'Flipkart',
+      price: 'Check on site',
+      availability: 'Check on site',
+      link: `https://www.flipkart.com/search?q=${encoded}&affid=ecopick`,
+      seller: 'Flipkart',
+      estimatedDelivery: '3-5 business days',
+    },
+  ];
+}
 
+// ── Web search helper — always returns Amazon.in + Flipkart links ──────────────
+async function performWebSearch(query: string): Promise<string> {
+  console.log(`[WebSearch] Building Amazon.in + Flipkart links for: "${query}"`);
+
+  // If Tavily is configured, try live search first
   if (process.env.TAVILY_API_KEY) {
     try {
       const response = await fetch('https://api.tavily.com/search', {
@@ -53,68 +80,24 @@ async function performWebSearch(query: string): Promise<string> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           api_key: process.env.TAVILY_API_KEY,
-          query,
+          query: `${query} site:amazon.in OR site:flipkart.com`,
           search_depth: 'basic',
           include_answer: false,
         }),
       });
       if (response.ok) {
         const data = await response.json();
-        return JSON.stringify(data.results || data);
+        if (data.results && data.results.length > 0) {
+          return JSON.stringify(data.results);
+        }
       }
     } catch (err) {
-      console.warn('[WebSearch] Tavily failed, using mock fallback:', err);
+      console.warn('[WebSearch] Tavily failed, using direct links:', err);
     }
   }
 
-  // Smart keyword-based mock fallback
-  const lowerQuery = query.toLowerCase();
-  const mockDb = [
-    {
-      keywords: ['water bottle', 'flask', 'bottle', 'cup', 'tumbler', 'thermos'],
-      results: [
-        { website: 'IKEA', price: '$12.99', availability: 'In Stock', link: 'https://www.ikea.com/us/en/p/enkelsparing-water-bottle-stainless-steel-40529573/', seller: 'IKEA US', estimatedDelivery: '3-5 business days' },
-        { website: 'Amazon', price: '$18.50', availability: 'In Stock', link: 'https://www.amazon.com/s?k=stainless+steel+water+bottle', seller: 'EcoLife Goods', estimatedDelivery: '2 business days' },
-        { website: 'Decathlon', price: '$15.00', availability: 'In Stock', link: 'https://www.decathlon.com/products/hiking-stainless-steel-mh500-08l', seller: 'Decathlon', estimatedDelivery: '4 business days' },
-      ],
-    },
-    {
-      keywords: ['t-shirt', 'shirt', 'clothing', 'tee', 'cotton', 'apparel', 'fashion', 'top'],
-      results: [
-        { website: 'Organic Basics', price: '$35.00', availability: 'In Stock', link: 'https://organicbasics.com/products/mens-cotton-tee', seller: 'Organic Basics', estimatedDelivery: '5-7 business days' },
-        { website: 'Amazon', price: '$22.00', availability: 'In Stock', link: 'https://www.amazon.com/s?k=organic+cotton+t-shirt', seller: 'GreenWear Co.', estimatedDelivery: '3 business days' },
-      ],
-    },
-    {
-      keywords: ['toothbrush', 'bamboo', 'oral', 'dental', 'brush'],
-      results: [
-        { website: 'Amazon', price: '$7.99 (4-Pack)', availability: 'In Stock', link: 'https://www.amazon.com/s?k=bamboo+toothbrush', seller: 'EcoBrush Lab', estimatedDelivery: '2 business days' },
-      ],
-    },
-    {
-      keywords: ['bag', 'tote', 'canvas', 'carry', 'shopping'],
-      results: [
-        { website: 'IKEA', price: '$2.99', availability: 'In Stock', link: 'https://www.ikea.com/us/en/p/skynke-carrier-bag-patterned-90480838/', seller: 'IKEA', estimatedDelivery: '3 business days' },
-      ],
-    },
-    {
-      keywords: ['shoe', 'sneaker', 'boot', 'footwear', 'running'],
-      results: [
-        { website: 'Allbirds', price: '$98.00', availability: 'In Stock', link: 'https://www.allbirds.com/products/mens-tree-runners', seller: 'Allbirds', estimatedDelivery: '5-7 business days' },
-        { website: 'Amazon', price: '$65.00', availability: 'In Stock', link: 'https://www.amazon.com/s?k=eco+friendly+running+shoes', seller: 'EcoStep', estimatedDelivery: '3 business days' },
-      ],
-    },
-  ];
-
-  for (const entry of mockDb) {
-    if (entry.keywords.some((k) => lowerQuery.includes(k))) {
-      return JSON.stringify(entry.results);
-    }
-  }
-
-  return JSON.stringify([
-    { website: 'Amazon', price: 'See site', availability: 'In Stock', link: 'https://www.amazon.com/s?k=' + encodeURIComponent(query), seller: 'Various Eco Sellers', estimatedDelivery: '3-5 business days' },
-  ]);
+  // Always return Amazon.in + Flipkart direct search links
+  return JSON.stringify(buildShoppingLinks(query));
 }
 
 // ── ECO Q&A system prompt ─────────────────────────────────────────────────────
@@ -137,6 +120,77 @@ export async function answerEcoQuestion(question: string): Promise<string> {
   return text;
 }
 
+// ── Image-based product analysis ──────────────────────────────────────────────
+export async function analyzeProductImage(
+  imageBase64: string,
+  mimeType: string,
+  userHint: string
+): Promise<ProductAnalysis> {
+  console.log(`[GeminiAgent] Analyzing product image (${mimeType})...`);
+
+  const apiKey = process.env.GEMINI_API_KEY || '';
+  if (!apiKey) throw new Error('GEMINI_API_KEY is not set.');
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  const model = genAI.getGenerativeModel({ model: modelName, systemInstruction: ECO_SYSTEM_PROMPT });
+
+  const shoppingLinks = buildShoppingLinks(userHint || 'eco friendly product');
+
+  const prompt = `The user has uploaded a product image. Please:
+1. Identify exactly what product is shown in the image (brand, material, category if visible)
+2. Perform a full eco analysis as per your system instructions
+3. Recommend eco-friendlier alternatives available on Amazon.in and Flipkart
+
+${userHint ? `User's note about the product: ${userHint}` : ''}
+
+For EVERY alternative, include 2 websiteAvailability entries:
+- Amazon.in: https://www.amazon.in/s?k=PRODUCT_NAME
+- Flipkart: https://www.flipkart.com/search?q=PRODUCT_NAME
+
+Base shopping links: ${JSON.stringify(shoppingLinks)}
+
+${JSON_ONLY_INSTRUCTION}`;
+
+  let rawText: string;
+  try {
+    const result = await model.generateContent([
+      {
+        inlineData: {
+          data: imageBase64,
+          mimeType: mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
+        },
+      },
+      prompt,
+    ]);
+    rawText = result.response.text();
+  } catch (err: any) {
+    console.error('[GeminiAgent] Image analysis error:', err?.message || err);
+    throw new Error(`Gemini API error: ${err?.message || 'Unknown error'}`);
+  }
+
+  if (!rawText?.trim()) throw new Error('Gemini returned an empty response for the image.');
+
+  console.log('[GeminiAgent] Image analysis response (first 200):', rawText.slice(0, 200));
+
+  const parsed = parseClaudeResponse(rawText);
+
+  // Guarantee Amazon.in + Flipkart links on every alternative
+  parsed.alternatives = parsed.alternatives.map(alt => {
+    const links = buildShoppingLinks(alt.productName);
+    const hasAmazon = alt.websiteAvailability.some(w => w.website.toLowerCase().includes('amazon'));
+    const hasFlipkart = alt.websiteAvailability.some(w => w.website.toLowerCase().includes('flipkart'));
+    if (!hasAmazon) alt.websiteAvailability.push(links[0]);
+    if (!hasFlipkart) alt.websiteAvailability.push(links[1]);
+    alt.websiteAvailability = alt.websiteAvailability.filter(w =>
+      w.website.toLowerCase().includes('amazon') || w.website.toLowerCase().includes('flipkart')
+    );
+    return alt;
+  });
+
+  return parsed;
+}
+
 // ── Strict JSON instruction appended to every product analysis prompt ──────────
 const JSON_ONLY_INSTRUCTION = `
 
@@ -149,12 +203,26 @@ Start your response with { and end with }.`;
 export async function analyzeProduct(productDescription: string): Promise<ProductAnalysis> {
   console.log(`[GeminiAgent] Analyzing product...`);
 
-  const searchResults = await performWebSearch(productDescription);
+  // Build Amazon.in + Flipkart search links for the original product query
+  const shoppingLinks = buildShoppingLinks(productDescription);
 
   const prompt = `Product Details / Description: ${productDescription}
 
-Web search results for pricing and availability (use these to fill websiteAvailability fields):
-${searchResults}
+IMPORTANT INSTRUCTIONS FOR websiteAvailability:
+For EVERY alternative product you recommend, you MUST include exactly 2 entries in websiteAvailability:
+1. Amazon.in — use this URL format: https://www.amazon.in/s?k=PRODUCT_NAME_URL_ENCODED
+2. Flipkart — use this URL format: https://www.flipkart.com/search?q=PRODUCT_NAME_URL_ENCODED
+
+Replace PRODUCT_NAME_URL_ENCODED with the actual eco-friendly alternative product name, URL-encoded (spaces become +).
+
+Example for "Bamboo Water Bottle":
+- Amazon.in: https://www.amazon.in/s?k=Bamboo+Water+Bottle
+- Flipkart: https://www.flipkart.com/search?q=Bamboo+Water+Bottle
+
+Set price to "Check on site", availability to "Check on site", seller to the platform name, estimatedDelivery to "2-5 business days".
+
+Base shopping links for the original product:
+${JSON.stringify(shoppingLinks, null, 2)}
 
 Analyze this product and respond with the JSON object as specified in your system instructions.${JSON_ONLY_INSTRUCTION}`;
 
@@ -165,11 +233,39 @@ Analyze this product and respond with the JSON object as specified in your syste
     rawText = await generateText(model, prompt);
   } catch (err: any) {
     console.error('[GeminiAgent] Gemini API error:', err?.message || err);
-    // Surface the actual Gemini error message
     throw new Error(`Gemini API error: ${err?.message || 'Unknown error'}`);
   }
 
   console.log('[GeminiAgent] Raw response (first 200 chars):', rawText.slice(0, 200));
 
-  return parseClaudeResponse(rawText);
+  const parsed = parseClaudeResponse(rawText);
+
+  // Post-process: ensure every alternative has Amazon.in + Flipkart links
+  parsed.alternatives = parsed.alternatives.map(alt => {
+    const hasAmazon = alt.websiteAvailability.some(w =>
+      w.website.toLowerCase().includes('amazon')
+    );
+    const hasFlipkart = alt.websiteAvailability.some(w =>
+      w.website.toLowerCase().includes('flipkart')
+    );
+
+    const generatedLinks = buildShoppingLinks(alt.productName);
+
+    if (!hasAmazon) {
+      alt.websiteAvailability.push(generatedLinks[0]); // Amazon.in
+    }
+    if (!hasFlipkart) {
+      alt.websiteAvailability.push(generatedLinks[1]); // Flipkart
+    }
+
+    // Keep only Amazon.in and Flipkart entries
+    alt.websiteAvailability = alt.websiteAvailability.filter(w =>
+      w.website.toLowerCase().includes('amazon') ||
+      w.website.toLowerCase().includes('flipkart')
+    );
+
+    return alt;
+  });
+
+  return parsed;
 }

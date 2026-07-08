@@ -274,6 +274,7 @@ Respond with ONLY a single valid JSON object (no markdown fences, no commentary)
     "category": "",
     "material": "",
     "estimatedCarbonFootprint": "LOW|MEDIUM|HIGH",
+    "carbonFootprintKg": 0,
     "sustainabilityScore": 0,
     "environmentalConcerns": [""]
   },
@@ -281,6 +282,7 @@ Respond with ONLY a single valid JSON object (no markdown fences, no commentary)
     {
       "productName": "",
       "estimatedCarbonFootprint": "LOW|MEDIUM|HIGH",
+      "carbonFootprintKg": 0,
       "material": "",
       "manufacturingCountry": "",
       "estimatedShippingImpact": "",
@@ -310,6 +312,13 @@ Respond with ONLY a single valid JSON object (no markdown fences, no commentary)
   "greenShoppingTips": [""],
   "dataDisclaimer": "Live product data is unavailable. Please verify the latest information on the seller's website."
 }
-Never fabricate prices, emissions figures, ratings, availability, or certifications. If uncertain, leave the field as an empty string and rely on dataDisclaimer.
 
-EXPLICIT INSTRUCTION: You must output ONLY a valid JSON object matching the JSON structure above. Do not wrap the JSON in markdown code blocks (e.g. \`\`\`json). Do not add any introductory or concluding text. Do not output any commentary. If you call any tools (like web_search), use their output in the final JSON, but the final text output must be JSON only.`;
+carbonFootprintKg rules:
+- Provide a realistic numeric estimate of total lifecycle CO2 equivalent in kilograms
+- Examples: plastic bottle ~0.3kg, cotton t-shirt ~8kg, smartphone ~70kg, car ~35000kg
+- For alternatives always use a LOWER value than the original product
+- Use your best estimate based on material, manufacturing, transport; never leave as 0
+
+Never fabricate prices, ratings, availability, or certifications. If uncertain, leave the field as an empty string and rely on dataDisclaimer.
+
+EXPLICIT INSTRUCTION: You must output ONLY a valid JSON object matching the JSON structure above. Do not wrap the JSON in markdown code blocks (e.g. \`\`\`json). Do not add any introductory or concluding text. Do not output any commentary.`;

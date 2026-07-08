@@ -10,7 +10,7 @@ export const BestChoiceBanner: React.FC<BestChoiceBannerProps> = ({ productName,
   if (!productName || !explanation) return null;
 
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-800 to-teal-800 text-white shadow-xl border border-emerald-700/50 p-6 md:p-8">
+    <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-800 via-emerald-700 to-teal-700 text-white shadow-xl border border-emerald-700/50 p-6 md:p-8 h-full flex flex-col justify-between">
       {/* Decorative leaf shapes */}
       <div className="absolute right-0 bottom-0 transform translate-x-10 translate-y-10 opacity-10 pointer-events-none">
         <Leaf className="w-64 h-64" />
