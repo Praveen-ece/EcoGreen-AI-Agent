@@ -1,13 +1,13 @@
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 import { ECO_SYSTEM_PROMPT } from '../prompts/ecoSystemPrompt';
 import { ProductAnalysis } from '../types/product';
-import { parseClaudeResponse } from './responseParser';
+import { parseGeminiResponse } from './responseParser';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 // ── Gemini client factory ──────────────────────────────────────────────────────
-function getModel(systemInstruction: string): GenerativeModel {
+function getModel(systemInstruction: string, isJson: boolean = false): GenerativeModel {
   const apiKey = process.env.GEMINI_API_KEY || '';
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not set. Please add it to backend/.env');
@@ -16,30 +16,60 @@ function getModel(systemInstruction: string): GenerativeModel {
   const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash-8b';
   console.log(`[GeminiAgent] Using model: ${modelName}`);
 
-  return genAI.getGenerativeModel({
+  const config: any = {
     model: modelName,
     systemInstruction,
-  });
+    generationConfig: {}
+  };
+
+  // Enforce JSON format for the AI response to improve robustness
+  if (isJson) {
+    config.generationConfig.responseMimeType = "application/json";
+  }
+
+  return genAI.getGenerativeModel(config);
 }
 
-// ── Generate content with error detail ────────────────────────────────────────
-async function generateText(model: GenerativeModel, prompt: string): Promise<string> {
-  const result = await model.generateContent(prompt);
-  const response = result.response;
+// ── Generate content with retry and error detail ────────────────────────────────
+async function generateText(model: GenerativeModel, prompt: string | any[], maxRetries = 2): Promise<string> {
+  let attempt = 0;
+  
+  while (attempt <= maxRetries) {
+    try {
+      // Simulate timeout using Promise.race (Gemini SDK might not have timeout built-in)
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Gemini API timeout')), 60000)
+      );
+      
+      const resultPromise = model.generateContent(prompt as any);
+      
+      const result: any = await Promise.race([resultPromise, timeoutPromise]);
+      const response = result.response;
 
-  // Log finish reason for debugging
-  const candidate = response.candidates?.[0];
-  if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
-    console.warn(`[GeminiAgent] Finish reason: ${candidate.finishReason}`);
-  }
+      // Log finish reason for debugging
+      const candidate = response.candidates?.[0];
+      if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
+        console.warn(`[GeminiAgent] Finish reason: ${candidate.finishReason}`);
+      }
 
-  const text = response.text();
-  if (!text || text.trim() === '') {
-    throw new Error(
-      `Gemini returned an empty response. Finish reason: ${candidate?.finishReason ?? 'unknown'}`
-    );
+      const text = response.text();
+      if (!text || text.trim() === '') {
+        throw new Error(`Gemini returned an empty response. Finish reason: ${candidate?.finishReason ?? 'unknown'}`);
+      }
+      return text;
+      
+    } catch (err: any) {
+      console.warn(`[GeminiAgent] Attempt ${attempt + 1} failed: ${err.message}`);
+      if (attempt === maxRetries) {
+        throw err;
+      }
+      // Exponential backoff
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+      attempt++;
+    }
   }
-  return text;
+  
+  throw new Error('Generate text failed after retries');
 }
 
 // ── Generate Amazon.in and Flipkart search URLs for a product ─────────────────
@@ -115,8 +145,8 @@ Guidelines:
 // ── General eco Q&A ────────────────────────────────────────────────────────────
 export async function answerEcoQuestion(question: string): Promise<string> {
   console.log(`[GeminiAgent] Answering eco question...`);
-  const model = getModel(ECO_QA_SYSTEM_PROMPT);
-  const text = await generateText(model, question);
+  const model = getModel(ECO_QA_SYSTEM_PROMPT, false);
+  const text = await generateText(model, question, 1);
   return text;
 }
 
@@ -128,12 +158,7 @@ export async function analyzeProductImage(
 ): Promise<ProductAnalysis> {
   console.log(`[GeminiAgent] Analyzing product image (${mimeType})...`);
 
-  const apiKey = process.env.GEMINI_API_KEY || '';
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not set.');
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-  const model = genAI.getGenerativeModel({ model: modelName, systemInstruction: ECO_SYSTEM_PROMPT });
+  const model = getModel(ECO_SYSTEM_PROMPT, true); // Use JSON strict mode
 
   const shoppingLinks = buildShoppingLinks(userHint || 'eco friendly product');
 
@@ -154,7 +179,7 @@ ${JSON_ONLY_INSTRUCTION}`;
 
   let rawText: string;
   try {
-    const result = await model.generateContent([
+    const inputContent = [
       {
         inlineData: {
           data: imageBase64,
@@ -162,8 +187,8 @@ ${JSON_ONLY_INSTRUCTION}`;
         },
       },
       prompt,
-    ]);
-    rawText = result.response.text();
+    ];
+    rawText = await generateText(model, inputContent, 2); // 2 retries
   } catch (err: any) {
     console.error('[GeminiAgent] Image analysis error:', err?.message || err);
     throw new Error(`Gemini API error: ${err?.message || 'Unknown error'}`);
@@ -173,7 +198,7 @@ ${JSON_ONLY_INSTRUCTION}`;
 
   console.log('[GeminiAgent] Image analysis response (first 200):', rawText.slice(0, 200));
 
-  const parsed = parseClaudeResponse(rawText);
+  const parsed = parseGeminiResponse(rawText);
 
   // Guarantee Amazon.in + Flipkart links on every alternative
   parsed.alternatives = parsed.alternatives.map(alt => {
@@ -226,11 +251,11 @@ ${JSON.stringify(shoppingLinks, null, 2)}
 
 Analyze this product and respond with the JSON object as specified in your system instructions.${JSON_ONLY_INSTRUCTION}`;
 
-  const model = getModel(ECO_SYSTEM_PROMPT);
+  const model = getModel(ECO_SYSTEM_PROMPT, true); // JSON Mode
 
   let rawText: string;
   try {
-    rawText = await generateText(model, prompt);
+    rawText = await generateText(model, prompt, 2); // 2 retries for robustness
   } catch (err: any) {
     console.error('[GeminiAgent] Gemini API error:', err?.message || err);
     throw new Error(`Gemini API error: ${err?.message || 'Unknown error'}`);
@@ -238,7 +263,7 @@ Analyze this product and respond with the JSON object as specified in your syste
 
   console.log('[GeminiAgent] Raw response (first 200 chars):', rawText.slice(0, 200));
 
-  const parsed = parseClaudeResponse(rawText);
+  const parsed = parseGeminiResponse(rawText);
 
   // Post-process: ensure every alternative has Amazon.in + Flipkart links
   parsed.alternatives = parsed.alternatives.map(alt => {

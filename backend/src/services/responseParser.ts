@@ -17,7 +17,7 @@ function toCarbon(val: unknown): CarbonFootprint {
   return 'MEDIUM';
 }
 
-export function parseClaudeResponse(rawText: string): ProductAnalysis {
+export function parseGeminiResponse(rawText: string): ProductAnalysis {
   const cleaned = extractJson(rawText);
 
   try {
@@ -106,3 +106,5 @@ export function parseClaudeResponse(rawText: string): ProductAnalysis {
     throw new Error('AI response could not be parsed into the expected JSON format.');
   }
 }
+
+export const parseClaudeResponse = parseGeminiResponse;

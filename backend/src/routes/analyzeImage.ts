@@ -1,12 +1,13 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { analyzeProductImage } from '../services/geminiAgent';
+import { AnalysisModel } from '../db/analysisModel';
+import { authenticateJWT, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
 // POST /api/analyze-image
-// Accepts multipart/form-data with field "image" (file) and optional "hint" (text)
-// Uses raw body parsing — client sends base64 JSON body for simplicity
-router.post('/', async (req: Request, res: Response) => {
+// Accepts JSON body with imageBase64, mimeType, and optional hint
+router.post('/', authenticateJWT, async (req: AuthRequest, res: Response) => {
   const { imageBase64, mimeType, hint } = req.body;
 
   if (!imageBase64 || typeof imageBase64 !== 'string') {
@@ -16,13 +17,50 @@ router.post('/', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'mimeType is required (e.g. image/jpeg).' });
   }
 
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+  if (!allowedTypes.includes(mimeType)) {
+    return res.status(400).json({ error: 'Unsupported image type. Please use JPEG, PNG, or WebP.' });
+  }
+
+  // base64 size check ~5MB limit (5MB = ~7MB in base64, let's say 10MB to be safe)
+  if (imageBase64.length > 10 * 1024 * 1024) {
+    return res.status(400).json({ error: 'Image is too large. Max size is roughly 5MB.' });
+  }
+
   try {
     const analysis = await analyzeProductImage(
       imageBase64,
       mimeType,
       typeof hint === 'string' ? hint : ''
     );
-    return res.json(analysis);
+
+    let dbId: string | undefined = undefined;
+    // ── Save to MongoDB (non-blocking) ──
+    try {
+      const saved = await AnalysisModel.create({
+        productDescription:    hint ? `Image Upload: ${hint.trim()}` : 'Image Upload',
+        productName:           analysis.productAnalysis.product,
+        category:              analysis.productAnalysis.category,
+        material:              analysis.productAnalysis.material,
+        carbonFootprint:       analysis.productAnalysis.estimatedCarbonFootprint,
+        carbonFootprintKg:     analysis.productAnalysis.carbonFootprintKg,
+        sustainabilityScore:   analysis.productAnalysis.sustainabilityScore,
+        environmentalConcerns: analysis.productAnalysis.environmentalConcerns,
+        alternativesCount:     analysis.alternatives.length,
+        bestChoiceProduct:     analysis.bestChoice.productName,
+        userId:                req.userId || null,
+        rawAnalysis:           analysis,
+      });
+      dbId = saved._id.toString();
+      console.log(`[MongoDB] Image analysis saved ✓ (User: ${req.userId || 'Guest'})`);
+    } catch (dbErr: any) {
+      console.warn('[MongoDB] Could not save image analysis (non-fatal):', dbErr?.message);
+    }
+
+    return res.json({
+      ...analysis,
+      _id: dbId
+    });
   } catch (error: any) {
     console.error('[Route /api/analyze-image] Error:', error?.message || error);
     const msg: string = error?.message || '';

@@ -10,7 +10,7 @@
 
 **An AI-powered sustainability shopping assistant that helps you make greener product choices.**
 
-[Live Demo](#) • [Features](#-features) • [Setup](#-setup--installation) • [API](#-api-reference) • [Contributing](#-contributing)
+[Live Demo](https://eco-green-ai-agent.vercel.app/) • [Features](#-features) • [Setup](#-setup--installation) • [API](#-api-reference) • [Contributing](#-contributing)
 
 </div>
 

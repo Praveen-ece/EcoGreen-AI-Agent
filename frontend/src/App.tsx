@@ -1,22 +1,31 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Leaf, Sparkles, AlertCircle, Send, Compass,
-  MessageCircle, Plus, Clock, Settings, Upload,
-  Leaf as LeafIcon, Trash2
+  MessageCircle, Plus, Clock, Upload,
+  Leaf as LeafIcon, Trash2, Moon, Sun, Download, Menu, X, User, LogOut
 } from 'lucide-react';
+import html2canvas from 'html2canvas';
+
 import ProductAnalysisCard from './components/ProductAnalysisCard';
 import AlternativesGrid from './components/AlternativesGrid';
 import ComparisonTable from './components/ComparisonTable';
 import BestChoiceBanner from './components/BestChoiceBanner';
 import GreenTipsList from './components/GreenTipsList';
 import LoadingState from './components/LoadingState';
+import EcoFacts from './components/EcoFacts';
+import LoginPage from './pages/LoginPage';
+
+import { useTheme } from './contexts/ThemeContext';
+import { useToast } from './contexts/ToastContext';
+
 import {
   analyzeProduct,
   chatWithEco,
   analyzeProductImage,
   fetchHistory,
   deleteHistoryItem,
-  clearAllHistory
+  clearAllHistory,
+  clearToken
 } from './api/client';
 
 import { ProductAnalysis } from './types/product';
@@ -73,6 +82,17 @@ interface Session {
 
 // ── App ───────────────────────────────────────────────────────────────────────
 export const App: React.FC = () => {
+  const { setTheme, isDark } = useTheme();
+  const { addToast } = useToast();
+
+  const [user, setUser] = useState<{ name: string; email: string } | null>(() => {
+    const saved = localStorage.getItem('ecopick_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [isGuest, setIsGuest] = useState(() => {
+    return localStorage.getItem('ecopick_is_guest') === 'true';
+  });
+
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
@@ -80,6 +100,7 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'simple' | 'structured'>('simple');
   const [showAllHistory, setShowAllHistory] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Structured form
   const [prodName, setProdName] = useState('');
@@ -91,6 +112,7 @@ export const App: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   const activeSession = sessions.find(s => s.id === activeSessionId) ?? null;
   const messages = activeSession?.messages ?? [];
@@ -100,9 +122,34 @@ export const App: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
+  // ── Sync Guest History to LocalStorage ─────────────────────────────────────
+  useEffect(() => {
+    if (isGuest) {
+      if (sessions.length > 0) {
+        localStorage.setItem('ecopick_guest_history', JSON.stringify(sessions));
+      } else {
+        localStorage.removeItem('ecopick_guest_history');
+      }
+    }
+  }, [sessions, isGuest]);
+
   // ── DB History loader on mount ──────────────────────────────────────────────
   useEffect(() => {
+    if (!user && !isGuest) return; // Wait until logged in or guest
+
     async function loadHistory() {
+      if (isGuest) {
+        try {
+          const cached = localStorage.getItem('ecopick_guest_history');
+          if (cached) {
+            setSessions(JSON.parse(cached));
+          }
+        } catch (e) {
+          console.error('Failed to load guest history:', e);
+        }
+        return;
+      }
+
       try {
         const historyData = await fetchHistory();
         const mappedSessions: Session[] = historyData.map((doc: any) => {
@@ -129,42 +176,54 @@ export const App: React.FC = () => {
         setSessions(mappedSessions);
       } catch (err: any) {
         console.error('Failed to load history from database:', err);
+        addToast('error', 'Could not load your history. Please check your connection.');
       }
     }
     loadHistory();
-  }, []);
+  }, [user, isGuest, addToast]);
+
+  // ── Handle Logout ──────────────────────────────────────────────────────────
+  const handleLogout = () => {
+    clearToken();
+    localStorage.removeItem('ecopick_is_guest');
+    localStorage.removeItem('ecopick_guest_history');
+    setUser(null);
+    setIsGuest(false);
+    setSessions([]);
+    setActiveSessionId(null);
+    addToast('info', 'Logged out successfully.');
+  };
 
   // ── Handle Deleting a Session from DB and state ─────────────────────────────
   const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
     e.stopPropagation();
-    const confirmDelete = window.confirm("Are you sure you want to delete this analysis permanently?");
-    if (!confirmDelete) return;
-
     try {
-      await deleteHistoryItem(sessionId);
+      if (!isGuest) {
+        await deleteHistoryItem(sessionId);
+      }
       setSessions(prev => prev.filter(s => s.id !== sessionId));
       if (activeSessionId === sessionId) {
         setActiveSessionId(null);
       }
+      addToast('success', 'Analysis deleted successfully.');
     } catch (err: any) {
-      alert(`Failed to delete session: ${err.message || err}`);
+      addToast('error', `Failed to delete session: ${err.message || err}`);
     }
   };
 
   // ── Handle Clearing All History from DB and state ───────────────────────────
   const handleClearAllHistory = async () => {
-    const confirmClear = window.confirm("Are you sure you want to clear all analysis history permanently?");
-    if (!confirmClear) return;
-
     try {
-      await clearAllHistory();
+      if (!isGuest) {
+        await clearAllHistory();
+      }
       setSessions([]);
       setActiveSessionId(null);
+      addToast('success', 'All history cleared.');
     } catch (err: any) {
-      alert(`Failed to clear history: ${err.message || err}`);
+      addToast('error', `Failed to clear history: ${err.message || err}`);
     }
   };
-
 
   // ── Session helpers ───────────────────────────────────────────────────────
   const createNewSession = () => {
@@ -175,6 +234,7 @@ export const App: React.FC = () => {
     setInputValue('');
     clearStructuredForm();
     setImageFile(null);
+    if (window.innerWidth < 1024) setMobileMenuOpen(false);
     return id;
   };
 
@@ -203,7 +263,7 @@ export const App: React.FC = () => {
     let rawText = '';
     let displayText = '';
 
-    if (activeTab === 'structured') {
+    if (activeTab === 'structured' && !overrideText) {
       const built = buildStructuredDescription();
       if (!built) return;
       rawText = built;
@@ -227,7 +287,6 @@ export const App: React.FC = () => {
       setImageFile(null);
     }
 
-    // Ensure active session
     let sessionId = activeSessionId;
     if (!sessionId) {
       sessionId = createNewSession();
@@ -247,34 +306,28 @@ export const App: React.FC = () => {
     setActiveSessionId(sessionId);
     setIsLoading(true);
 
-    const treatAsQuestion = activeTab === 'simple' && isQuestion(rawText) && !imageFile;
+    const treatAsQuestion = activeTab === 'simple' && isQuestion(rawText) && !imageFile && !overrideText?.startsWith('Analyze');
 
     try {
       let aiMsg: Message;
       let finalSessionId = sessionId;
 
       if (imageFile) {
-        // Send actual image bytes to Gemini vision
         const capturedFile = imageFile;
         setImageFile(null);
         const result = await analyzeProductImage(capturedFile, inputValue.trim());
         aiMsg = { id: aiMsgId, type: 'analysis', content: '', analysis: result };
-        if (result._id) {
-          finalSessionId = result._id;
-        }
+        if (result._id) finalSessionId = result._id;
       } else if (treatAsQuestion) {
         const answer = await chatWithEco(rawText);
         aiMsg = { id: aiMsgId, type: 'answer', content: answer };
       } else {
         const result = await analyzeProduct(rawText);
         aiMsg = { id: aiMsgId, type: 'analysis', content: '', analysis: result };
-        if (result._id) {
-          finalSessionId = result._id;
-        }
+        if (result._id) finalSessionId = result._id;
       }
       const updatedMsgs = [...currentMsgs, aiMsg];
       
-      // Update session title & ID mapping
       setSessions(prev => prev.map(s => {
         if (s.id === sessionId) {
           const finalTitle = aiMsg.analysis?.productAnalysis.product || displayText;
@@ -291,6 +344,7 @@ export const App: React.FC = () => {
     } catch (err: any) {
       const errMsg: Message = { id: aiMsgId, type: 'error', content: err.message || 'Something went wrong. Please try again.' };
       updateSession(sessionId, [...currentMsgs, errMsg], displayText);
+      addToast('error', 'Request failed.');
     } finally {
       setIsLoading(false);
     }
@@ -309,25 +363,78 @@ export const App: React.FC = () => {
     e.target.value = '';
   };
 
+  const handleExport = async (messageId: string) => {
+    const element = document.getElementById(`analysis-${messageId}`);
+    if (!element) return;
+    
+    addToast('info', 'Preparing export...');
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: isDark ? '#0f172a' : '#f6fcf8'
+      });
+      
+      const link = document.createElement('a');
+      link.download = `EcoPick-Analysis-${Date.now()}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      addToast('success', 'Export successful!');
+    } catch (error) {
+      addToast('error', 'Failed to export image.');
+    }
+  };
+
+  const handleChipClick = (suggestion: string) => {
+    setInputValue(suggestion);
+    textareaRef.current?.focus();
+  };
+
   const visibleSessions = showAllHistory ? sessions : sessions.slice(0, 5);
 
+  if (!user && !isGuest) {
+    return (
+      <div className="min-h-screen">
+        <LoginPage onLogin={setUser} onGuest={() => setIsGuest(true)} />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-screen overflow-hidden bg-[#f0faf4]">
-
-      {/* ── LEFT SIDEBAR ──────────────────────────────────────────────────── */}
-      <aside className="w-56 flex-shrink-0 bg-white border-r border-emerald-100 flex flex-col py-4 px-3 gap-3">
-
-        {/* Logo */}
-        <div className="flex items-center gap-2 px-1 mb-1 cursor-pointer select-none" onClick={() => { setActiveSessionId(null); }}>
-          <div className="bg-emerald-600 p-1.5 rounded-lg text-white shadow-sm">
+    <div className={`flex h-screen overflow-hidden ${isDark ? 'dark' : ''}`}>
+      
+      {/* ── MOBILE HEADER ──────────────────────────────────────────────────── */}
+      <div className="lg:hidden absolute top-0 left-0 right-0 h-14 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md z-40 border-b border-emerald-100 dark:border-emerald-900/50 flex items-center justify-between px-4">
+        <div className="flex items-center gap-2">
+          <div className="bg-emerald-600 p-1.5 rounded-lg text-white">
             <LeafIcon className="w-4 h-4" />
           </div>
+          <span className="font-extrabold text-slate-800 dark:text-slate-100">EcoPick</span>
+        </div>
+        <button onClick={() => setMobileMenuOpen(true)} className="p-2 text-slate-600 dark:text-slate-300">
+          <Menu className="w-6 h-6" />
+        </button>
+      </div>
+
+      {/* ── LEFT SIDEBAR ──────────────────────────────────────────────────── */}
+      <aside className={`fixed inset-y-0 left-0 z-50 w-64 transform ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 transition-transform duration-300 ease-in-out flex-shrink-0 bg-white dark:bg-slate-900 border-r border-emerald-100 dark:border-emerald-900/50 flex flex-col py-4 px-3 gap-3 shadow-2xl lg:shadow-none`}>
+        
+        {/* Mobile close button */}
+        <button onClick={() => setMobileMenuOpen(false)} className="lg:hidden absolute top-4 right-4 text-slate-500">
+          <X className="w-5 h-5" />
+        </button>
+
+        {/* Logo */}
+        <div className="flex items-center gap-2 px-1 mb-2 mt-2 lg:mt-0 cursor-pointer select-none" onClick={() => { setActiveSessionId(null); if(window.innerWidth<1024) setMobileMenuOpen(false); }}>
+          <div className="bg-emerald-600 p-2 rounded-xl text-white shadow-sm shadow-emerald-600/30">
+            <LeafIcon className="w-5 h-5" />
+          </div>
           <div>
-            <span className="text-base font-extrabold tracking-tight text-slate-800">
+            <span className="text-xl font-extrabold tracking-tight text-slate-800 dark:text-slate-100">
               Eco<span className="text-emerald-600">Pick</span>
             </span>
-            <p className="text-[8px] font-bold text-emerald-600 tracking-widest uppercase leading-none">
-              AI SUSTAINABILITY AGENT
+            <p className="text-[9px] font-bold text-emerald-600 tracking-widest uppercase leading-none mt-0.5">
+              AI Sustainability Agent
             </p>
           </div>
         </div>
@@ -335,56 +442,59 @@ export const App: React.FC = () => {
         {/* New Chat */}
         <button
           onClick={createNewSession}
-          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-all shadow-sm"
+          className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-sm font-bold transition-all shadow-md shadow-emerald-600/20"
         >
           <Plus className="w-4 h-4" />
-          New Chat
+          New Analysis
         </button>
 
         {/* Recent history */}
-        <div className="flex-1 overflow-y-auto space-y-1 min-h-0">
+        <div className="flex-1 overflow-y-auto space-y-1 min-h-0 mt-2 pr-1 custom-scrollbar">
           {sessions.length > 0 && (
-            <div className="flex items-center justify-between px-1 pt-1 pb-0.5">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                Recent
+            <div className="flex items-center justify-between px-2 pt-2 pb-1">
+              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                Recent Activity
               </span>
               <button
                 onClick={handleClearAllHistory}
-                className="text-[9px] font-semibold text-rose-500 hover:text-rose-700 hover:underline transition-all"
+                className="text-[9px] font-semibold text-rose-500 hover:text-rose-600 hover:underline transition-all"
               >
                 Clear all
               </button>
             </div>
           )}
-          {visibleSessions.map(session => (
-            <div
-              key={session.id}
-              onClick={() => setActiveSessionId(session.id)}
-              className={`group w-full text-left px-2.5 py-2 rounded-lg text-xs transition-all flex items-start gap-2 cursor-pointer ${
-                activeSessionId === session.id
-                  ? 'bg-emerald-50 text-emerald-800 font-semibold'
-                  : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <Compass className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="truncate font-medium">{session.title}</p>
-                <p className="text-[10px] text-slate-400 mt-0.5">{session.timeLabel}</p>
-              </div>
-              <button
-                onClick={(e) => handleDeleteSession(e, session.id)}
-                className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500 p-0.5 rounded transition-all flex-shrink-0"
-                title="Delete this analysis"
+          
+          <div className="space-y-1">
+            {visibleSessions.map(session => (
+              <div
+                key={session.id}
+                onClick={() => { setActiveSessionId(session.id); if(window.innerWidth<1024) setMobileMenuOpen(false); }}
+                className={`group w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all flex items-start gap-2.5 cursor-pointer border ${
+                  activeSessionId === session.id
+                    ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-200 border-emerald-100 dark:border-emerald-800 font-semibold shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                }`}
               >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
+                <Compass className={`w-4 h-4 flex-shrink-0 mt-0.5 ${activeSessionId === session.id ? 'text-emerald-600' : 'text-slate-400'}`} />
+                <div className="flex-1 min-w-0">
+                  <p className="truncate">{session.title}</p>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{session.timeLabel}</p>
+                </div>
+                <button
+                  onClick={(e) => handleDeleteSession(e, session.id)}
+                  className={`opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500 p-1 rounded transition-all flex-shrink-0 ${activeSessionId === session.id ? 'opacity-100' : ''}`}
+                  title="Delete this analysis"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
 
           {sessions.length > 5 && (
             <button
               onClick={() => setShowAllHistory(v => !v)}
-              className="w-full flex items-center gap-2 px-2.5 py-2 text-xs text-slate-500 hover:text-emerald-700 rounded-lg hover:bg-slate-50 transition-all"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 mt-2 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-all border border-dashed border-slate-200 dark:border-slate-700"
             >
               <Clock className="w-3.5 h-3.5" />
               {showAllHistory ? 'Show less' : 'View all history'}
@@ -392,44 +502,99 @@ export const App: React.FC = () => {
           )}
         </div>
 
-        {/* Settings */}
-        <button className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-all mt-auto">
-          <Settings className="w-3.5 h-3.5" />
-          Settings
-        </button>
+        {/* Bottom actions */}
+        <div className="mt-auto pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2">
+          {/* Theme Toggle */}
+          <button 
+            onClick={() => setTheme(isDark ? 'light' : 'dark')}
+            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
+          >
+            {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            {isDark ? 'Light Mode' : 'Dark Mode'}
+          </button>
+          
+          {/* User Profile */}
+          <div className="flex items-center justify-between gap-3 px-3 py-2.5 mt-2 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="bg-emerald-100 dark:bg-emerald-900/50 p-1.5 rounded-full text-emerald-700 dark:text-emerald-300 flex-shrink-0">
+                <User className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{user ? user.name : 'Guest User'}</p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">{user ? user.email : 'Not logged in'}</p>
+              </div>
+            </div>
+            <button 
+              onClick={handleLogout} 
+              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all flex-shrink-0"
+              title="Log Out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       </aside>
 
+      {/* Mobile backdrop */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-40 lg:hidden" onClick={() => setMobileMenuOpen(false)} />
+      )}
+
       {/* ── MAIN AREA ─────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50/50 dark:bg-slate-900 relative">
+        
+        {/* Background Mesh */}
+        <div className="absolute inset-0 gradient-mesh opacity-40 pointer-events-none" />
 
         {/* Scrollable conversation */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
+        <div className="flex-1 overflow-y-auto custom-scrollbar relative z-10 pt-14 lg:pt-0" ref={chatContainerRef}>
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-8 pb-32">
 
             {/* Welcome hero */}
             {isEmpty && (
-              <div className="flex flex-col items-center justify-center min-h-[55vh] space-y-5 text-center">
-                <div className="bg-emerald-600 p-4 rounded-2xl text-white shadow-lg shadow-emerald-600/20">
-                  <Leaf className="w-10 h-10" />
+              <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-6 text-center animate-fade-in-up">
+                <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-5 rounded-3xl text-white shadow-xl shadow-emerald-600/20 transform hover:scale-105 transition-transform">
+                  <Leaf className="w-12 h-12" />
                 </div>
-                <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-800">
-                  Ask me anything about{' '}
-                  <span className="text-emerald-600">sustainability</span>
-                </h2>
-                <p className="text-slate-500 text-sm md:text-base leading-relaxed max-w-md">
-                  Type a question about eco-friendly products, carbon footprint, sustainable materials, or describe a product to get a full environmental analysis.
-                </p>
+                <div className="space-y-3">
+                  <h2 className="text-3xl md:text-5xl font-extrabold tracking-tight text-slate-800 dark:text-white">
+                    What are you <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-teal-500">buying today?</span>
+                  </h2>
+                  <p className="text-slate-500 dark:text-slate-400 text-base md:text-lg leading-relaxed max-w-xl mx-auto">
+                    Paste a product link, describe an item, or upload a photo. I'll analyze its environmental impact and find greener alternatives.
+                  </p>
+                </div>
+                
+                <div className="w-full max-w-2xl mt-8">
+                  <EcoFacts />
+                </div>
+
+                {/* Suggestions */}
+                <div className="pt-8">
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Try asking about</p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {["Disposable Plastic Water Bottle", "Fast Fashion Cotton T-Shirt", "Smartphone Case", "Is bamboo packaging actually sustainable?"].map((suggestion, i) => (
+                      <button
+                        key={i}
+                        onClick={() => handleChipClick(suggestion)}
+                        className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-sm font-medium text-slate-600 dark:text-slate-300 hover:border-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:shadow-sm transition-all"
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 
             {/* Message thread */}
-            {messages.map((msg) => (
-              <div key={msg.id}>
+            {messages.map((msg, idx) => (
+              <div key={msg.id} className="animate-fade-in-up" style={{ animationDelay: `${idx * 0.1}s` }}>
 
                 {/* User bubble */}
                 {msg.type === 'user' && (
                   <div className="flex justify-end">
-                    <div className="max-w-[75%] bg-emerald-600 text-white px-4 py-3 rounded-2xl rounded-tr-sm shadow-md text-sm font-medium leading-relaxed">
+                    <div className="max-w-[85%] md:max-w-[75%] bg-emerald-600 text-white px-5 py-3.5 rounded-3xl rounded-tr-sm shadow-md text-sm md:text-base font-medium leading-relaxed">
                       {msg.content}
                     </div>
                   </div>
@@ -438,50 +603,41 @@ export const App: React.FC = () => {
                 {/* Error */}
                 {msg.type === 'error' && (
                   <div className="flex justify-start">
-                    <div className="max-w-[80%] bg-rose-50 border border-rose-200 border-l-4 border-l-rose-500 p-4 rounded-2xl rounded-tl-sm flex items-start gap-3 shadow-sm">
-                      <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
+                    <div className="max-w-[85%] bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800/50 border-l-4 border-l-rose-500 p-4 rounded-2xl rounded-tl-sm flex items-start gap-3 shadow-sm">
+                      <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 flex-shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-xs font-bold text-rose-800">Something went wrong</p>
-                        <p className="text-xs text-rose-700 mt-0.5 leading-relaxed">{msg.content}</p>
+                        <p className="text-sm font-bold text-rose-800 dark:text-rose-300">Analysis Failed</p>
+                        <p className="text-sm text-rose-700 dark:text-rose-400 mt-1 leading-relaxed">{msg.content}</p>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* Eco answer */}
+                {/* Eco answer (Chat) */}
                 {msg.type === 'answer' && (
-                  <div className="animate-fade-in space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="bg-emerald-600 p-1.5 rounded-lg text-white shadow-sm">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 ml-1">
+                      <div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-1.5 rounded-lg text-white shadow-sm">
                         <MessageCircle className="w-4 h-4" />
                       </div>
-                      <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">EcoPick Answer</span>
+                      <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">EcoPick Agent</span>
                     </div>
-                    <div className="bg-white border border-emerald-100 rounded-2xl rounded-tl-sm p-5 shadow-sm space-y-2">
+                    <div className="bg-white dark:bg-slate-800 border border-emerald-100 dark:border-emerald-800/30 rounded-3xl rounded-tl-sm p-6 shadow-sm shadow-emerald-900/5 space-y-3">
                       {msg.content.split('\n').map((line, i) => {
                         const t = line.trim();
-                        if (!t) return <div key={i} className="h-1.5" />;
+                        if (!t) return <div key={i} className="h-2" />;
                         if (t.startsWith('- ') || t.startsWith('• ') || t.startsWith('* ')) {
                           return (
-                            <div key={i} className="flex items-start gap-2 text-sm text-slate-700 leading-relaxed">
+                            <div key={i} className="flex items-start gap-3 text-sm md:text-base text-slate-700 dark:text-slate-300 leading-relaxed">
                               <span className="text-emerald-500 font-bold mt-0.5 flex-shrink-0">•</span>
                               <span>{t.replace(/^[-•*]\s+/, '')}</span>
                             </div>
                           );
                         }
-                        if (/^\d+\.\s/.test(t)) {
-                          const num = t.match(/^(\d+)\.\s/)?.[1];
-                          return (
-                            <div key={i} className="flex items-start gap-2 text-sm text-slate-700 leading-relaxed">
-                              <span className="text-emerald-600 font-bold w-5 flex-shrink-0 mt-0.5">{num}.</span>
-                              <span>{t.replace(/^\d+\.\s+/, '')}</span>
-                            </div>
-                          );
-                        }
                         if (/^\*\*(.+)\*\*$/.test(t)) {
-                          return <p key={i} className="text-sm font-bold text-slate-800">{t.replace(/\*\*/g, '')}</p>;
+                          return <p key={i} className="text-base font-bold text-slate-800 dark:text-slate-100">{t.replace(/\*\*/g, '')}</p>;
                         }
-                        return <p key={i} className="text-sm text-slate-700 leading-relaxed">{t}</p>;
+                        return <p key={i} className="text-sm md:text-base text-slate-700 dark:text-slate-300 leading-relaxed">{t}</p>;
                       })}
                     </div>
                   </div>
@@ -489,12 +645,23 @@ export const App: React.FC = () => {
 
                 {/* Product analysis */}
                 {msg.type === 'analysis' && msg.analysis && (
-                  <div className="space-y-6 animate-fade-in">
-                    <div className="flex items-center gap-2">
-                      <div className="bg-emerald-600 p-1.5 rounded-lg text-white shadow-sm">
-                        <Leaf className="w-4 h-4" />
+                  <div className="space-y-6" id={`analysis-${msg.id}`}>
+                    <div className="flex items-center justify-between ml-1">
+                      <div className="flex items-center gap-2">
+                        <div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-1.5 rounded-lg text-white shadow-sm">
+                          <Leaf className="w-4 h-4" />
+                        </div>
+                        <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">Sustainability Report</span>
                       </div>
-                      <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">EcoPick Analysis</span>
+                      
+                      {/* Export Button */}
+                      <button 
+                        onClick={() => handleExport(msg.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-300 transition-all shadow-sm"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Export Image
+                      </button>
                     </div>
 
                     <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-stretch">
@@ -523,10 +690,10 @@ export const App: React.FC = () => {
                     <GreenTipsList aiTips={msg.analysis.greenShoppingTips} />
 
                     {msg.analysis.dataDisclaimer && (
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-start gap-2.5">
-                        <Compass className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
-                        <p className="text-xs text-slate-500 leading-relaxed">
-                          <strong>Verification Notice:</strong> {msg.analysis.dataDisclaimer}
+                      <div className="bg-slate-100/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 flex items-start gap-3">
+                        <Compass className="w-5 h-5 text-slate-400 dark:text-slate-500 flex-shrink-0 mt-0.5" />
+                        <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+                          <strong className="text-slate-700 dark:text-slate-300">Data Notice:</strong> {msg.analysis.dataDisclaimer}
                         </p>
                       </div>
                     )}
@@ -537,46 +704,48 @@ export const App: React.FC = () => {
 
             {/* Loading */}
             {isLoading && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <div className="bg-emerald-600 p-1.5 rounded-lg text-white shadow-sm">
-                    <Leaf className="w-4 h-4" />
+              <div className="space-y-4 animate-fade-in">
+                <div className="flex items-center gap-2 ml-1">
+                  <div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-1.5 rounded-lg text-white shadow-sm">
+                    <Sparkles className="w-4 h-4 animate-spin-slow" />
                   </div>
-                  <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">EcoPick is thinking…</span>
+                  <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider animate-pulse">
+                    EcoPick is analyzing...
+                  </span>
                 </div>
                 <LoadingState />
               </div>
             )}
 
-            <div ref={messagesEndRef} />
+            <div ref={messagesEndRef} className="h-4" />
           </div>
         </div>
 
         {/* ── Fixed input bar ──────────────────────────────────────────────── */}
-        <div className="flex-shrink-0 border-t border-emerald-100 bg-white px-6 py-4 shadow-[0_-2px_12px_-2px_rgba(16,185,129,0.06)]">
-          <div className="max-w-5xl mx-auto space-y-2.5">
+        <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-emerald-100/50 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl px-4 sm:px-6 py-4 shadow-[0_-10px_40px_-10px_rgba(16,185,129,0.1)]">
+          <div className="max-w-4xl mx-auto space-y-3">
 
             {/* Tab row + Image Upload */}
             <div className="flex items-center justify-between">
-              <div className="flex gap-1.5">
+              <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => setActiveTab('simple')}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
                     activeTab === 'simple'
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-emerald-50 border border-slate-200'
+                      ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                   }`}
                 >
-                  Ask / Describe
+                  Message
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveTab('structured')}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
                     activeTab === 'structured'
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-emerald-50 border border-slate-200'
+                      ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                   }`}
                 >
                   Product Form
@@ -587,14 +756,14 @@ export const App: React.FC = () => {
               <button
                 type="button"
                 onClick={() => imageInputRef.current?.click()}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
                   imageFile
-                    ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
-                    : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                    ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+                    : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
                 }`}
               >
                 <Upload className="w-3.5 h-3.5" />
-                {imageFile ? `📷 ${imageFile.name.slice(0, 15)}…` : 'Image Upload'}
+                {imageFile ? `📷 ${imageFile.name.slice(0, 15)}…` : 'Upload Image'}
               </button>
               <input
                 ref={imageInputRef}
@@ -607,57 +776,74 @@ export const App: React.FC = () => {
 
             {/* Input area */}
             {activeTab === 'simple' ? (
-              <form onSubmit={handleSubmit} className="flex gap-2 items-end">
-                <div className="flex-1">
+              <form onSubmit={handleSubmit} className="flex gap-2 items-end relative">
+                <div className="flex-1 relative">
+                  {imageFile && (
+                    <div className="absolute left-3 top-3 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 text-xs px-2 py-1 rounded-md flex items-center gap-1 font-semibold border border-emerald-200 dark:border-emerald-800">
+                      <span>Image attached</span>
+                      <button type="button" onClick={(e) => { e.preventDefault(); setImageFile(null); }} className="hover:text-rose-500 ml-1">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
                   <textarea
                     ref={textareaRef}
-                    rows={2}
+                    rows={1}
                     value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
+                    onChange={(e) => {
+                      setInputValue(e.target.value);
+                      e.target.style.height = 'auto';
+                      e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                    }}
                     onKeyDown={handleKeyDown}
-                    placeholder="Ask an eco question or describe a product… (Enter to send)"
+                    placeholder={imageFile ? "  \n\nAdd details about the image..." : "Paste a product link, or ask a question... (Enter to send)"}
                     disabled={isLoading}
-                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 bg-white outline-none transition-all placeholder-slate-400 resize-none text-sm leading-relaxed shadow-sm"
+                    className="w-full pl-4 pr-12 py-3.5 rounded-2xl border-2 border-slate-200 dark:border-slate-700 focus:ring-0 focus:border-emerald-500 bg-white/50 dark:bg-slate-800/50 outline-none transition-all placeholder-slate-400 dark:placeholder-slate-500 resize-none text-sm md:text-base leading-relaxed shadow-inner-sm max-h-[120px] custom-scrollbar"
                   />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center pointer-events-none">
+                    <kbd className="hidden md:inline-block px-2 py-1 bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-400 rounded text-[10px] font-bold tracking-widest uppercase border border-slate-200 dark:border-slate-600">
+                      Enter ↵
+                    </kbd>
+                  </div>
                 </div>
                 <button
                   type="submit"
                   disabled={(!inputValue.trim() && !imageFile) || isLoading}
-                  className={`flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-2xl shadow-sm transition-all ${
+                  className={`flex-shrink-0 flex items-center justify-center w-12 h-12 rounded-2xl shadow-md transition-all transform hover:-translate-y-0.5 ${
                     (inputValue.trim() || imageFile) && !isLoading
-                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
-                      : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                      ? 'bg-gradient-to-br from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white cursor-pointer shadow-emerald-500/25'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed shadow-none'
                   }`}
                 >
-                  <Send className="w-4 h-4" />
+                  <Send className="w-5 h-5 ml-0.5" />
                 </button>
               </form>
             ) : (
-              <form onSubmit={handleSubmit} className="space-y-2">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              <form onSubmit={handleSubmit} className="bg-white/80 dark:bg-slate-800/80 p-4 rounded-2xl border-2 border-slate-200 dark:border-slate-700 space-y-3">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   <input type="text" placeholder="Product name *" value={prodName}
                     onChange={(e) => setProdName(e.target.value)} disabled={isLoading} required
-                    className="px-3 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-400 bg-white outline-none text-sm placeholder-slate-400" />
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 focus:border-emerald-500 bg-white dark:bg-slate-900 outline-none text-sm placeholder-slate-400 dark:placeholder-slate-500 transition-colors" />
                   <input type="text" placeholder="Category *" value={prodCategory}
                     onChange={(e) => setProdCategory(e.target.value)} disabled={isLoading} required
-                    className="px-3 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-400 bg-white outline-none text-sm placeholder-slate-400" />
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 focus:border-emerald-500 bg-white dark:bg-slate-900 outline-none text-sm placeholder-slate-400 dark:placeholder-slate-500 transition-colors" />
                   <input type="text" placeholder="Material (optional)" value={prodMaterial}
                     onChange={(e) => setProdMaterial(e.target.value)} disabled={isLoading}
-                    className="px-3 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-400 bg-white outline-none text-sm placeholder-slate-400" />
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 focus:border-emerald-500 bg-white dark:bg-slate-900 outline-none text-sm placeholder-slate-400 dark:placeholder-slate-500 transition-colors" />
                   <input type="text" placeholder="Brand (optional)" value={prodBrand}
                     onChange={(e) => setProdBrand(e.target.value)} disabled={isLoading}
-                    className="px-3 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-400 bg-white outline-none text-sm placeholder-slate-400" />
-                  <input type="text" placeholder="Country of manufacture (optional)" value={prodCountry}
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 focus:border-emerald-500 bg-white dark:bg-slate-900 outline-none text-sm placeholder-slate-400 dark:placeholder-slate-500 transition-colors" />
+                  <input type="text" placeholder="Country (optional)" value={prodCountry}
                     onChange={(e) => setProdCountry(e.target.value)} disabled={isLoading}
-                    className="px-3 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-400 bg-white outline-none text-sm placeholder-slate-400 md:col-span-2" />
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 focus:border-emerald-500 bg-white dark:bg-slate-900 outline-none text-sm placeholder-slate-400 dark:placeholder-slate-500 transition-colors md:col-span-2" />
                 </div>
-                <div className="flex justify-end">
+                <div className="flex justify-end pt-1">
                   <button type="submit"
                     disabled={!prodName.trim() || !prodCategory.trim() || isLoading}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm transition-all ${
+                    className={`flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-bold shadow-md transition-all w-full md:w-auto ${
                       prodName.trim() && prodCategory.trim() && !isLoading
-                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-emerald-500/25'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed shadow-none'
                     }`}>
                     <Sparkles className="w-4 h-4" />
                     Analyze Sustainability
@@ -665,10 +851,6 @@ export const App: React.FC = () => {
                 </div>
               </form>
             )}
-
-            <p className="text-[10px] text-slate-400 text-center">
-              EcoPick uses AI to estimate environmental impact. Always verify prices and availability with sellers.
-            </p>
           </div>
         </div>
       </div>

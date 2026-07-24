@@ -1,38 +1,31 @@
-import React from 'react';
-import { Leaf, AlertTriangle, Flame } from 'lucide-react';
+import { CloudRain } from 'lucide-react';
+
 import { CarbonFootprint } from '../types/product';
 
-interface CarbonFootprintBadgeProps {
-  level: CarbonFootprint;
+interface Props {
+  level: CarbonFootprint | 'Unknown';
 }
 
-export const CarbonFootprintBadge: React.FC<CarbonFootprintBadgeProps> = ({ level }) => {
-  let badgeStyle = '';
-  let Icon = Leaf;
-
-  switch (level) {
-    case 'LOW':
-      badgeStyle = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-      Icon = Leaf;
-      break;
-    case 'MEDIUM':
-      badgeStyle = 'bg-amber-50 text-amber-700 border-amber-200';
-      Icon = AlertTriangle;
-      break;
-    case 'HIGH':
-      badgeStyle = 'bg-rose-50 text-rose-700 border-rose-200';
-      Icon = Flame;
-      break;
-    default:
-      badgeStyle = 'bg-slate-50 text-slate-600 border-slate-200';
-      Icon = AlertTriangle;
+export const CarbonFootprintBadge: React.FC<Props> = ({ level }) => {
+  let color = 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700';
+  let iconColor = 'text-slate-400';
+  
+  if (level === 'LOW') {
+    color = 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800';
+    iconColor = 'text-emerald-500';
+  } else if (level === 'MEDIUM') {
+    color = 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800';
+    iconColor = 'text-amber-500';
+  } else if (level === 'HIGH') {
+    color = 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800';
+    iconColor = 'text-rose-500';
   }
 
   return (
-    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border shadow-sm ${badgeStyle}`}>
-      <Icon className="w-3.5 h-3.5" />
-      {level} FOOTPRINT
-    </span>
+    <div className={`group inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border font-bold text-xs shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md cursor-help ${color}`}>
+      <CloudRain className={`w-4 h-4 ${iconColor} group-hover:animate-pulse`} />
+      <span className="uppercase tracking-wider">{level} Carbon</span>
+    </div>
   );
 };
 export default CarbonFootprintBadge;

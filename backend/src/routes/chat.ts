@@ -10,6 +10,10 @@ router.post('/', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Question is required and must be a non-empty string.' });
   }
 
+  if (question.length > 500) {
+    return res.status(400).json({ error: 'Question is too long. Please keep it under 500 characters.' });
+  }
+
   try {
     const answer = await answerEcoQuestion(question.trim());
     return res.json({ answer });

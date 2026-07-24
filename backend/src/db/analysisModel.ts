@@ -11,6 +11,7 @@ export interface IAnalysisDoc extends Document {
   environmentalConcerns: string[];
   alternativesCount: number;
   bestChoiceProduct: string;
+  userId?: string;                 // linked user (optional for guest)
   createdAt: Date;
   rawAnalysis: object;             // full JSON blob for future use
 }
@@ -27,6 +28,7 @@ const AnalysisSchema = new Schema<IAnalysisDoc>(
     environmentalConcerns:{ type: [String], default: [] },
     alternativesCount:    { type: Number, default: 0 },
     bestChoiceProduct:    { type: String, default: '' },
+    userId:               { type: Schema.Types.ObjectId, ref: 'User', default: null },
     rawAnalysis:          { type: Schema.Types.Mixed },
   },
   { timestamps: true }
