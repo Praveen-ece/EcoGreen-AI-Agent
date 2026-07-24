@@ -553,36 +553,16 @@ export const App: React.FC = () => {
             {/* Welcome hero */}
             {isEmpty && (
               <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-6 text-center animate-fade-in-up">
-                <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-5 rounded-3xl text-white shadow-xl shadow-emerald-600/20 transform hover:scale-105 transition-transform">
+                <div className="bg-emerald-500 p-5 rounded-3xl text-white shadow-md transform hover:scale-105 transition-transform">
                   <Leaf className="w-12 h-12" />
                 </div>
                 <div className="space-y-3">
-                  <h2 className="text-3xl md:text-5xl font-extrabold tracking-tight text-slate-800 dark:text-white">
-                    What are you <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-teal-500">buying today?</span>
+                  <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-800 dark:text-white">
+                    Ask me anything about <span className="text-emerald-600">sustainability</span>
                   </h2>
-                  <p className="text-slate-500 dark:text-slate-400 text-base md:text-lg leading-relaxed max-w-xl mx-auto">
-                    Paste a product link, describe an item, or upload a photo. I'll analyze its environmental impact and find greener alternatives.
+                  <p className="text-slate-500 dark:text-slate-400 text-base leading-relaxed max-w-lg mx-auto">
+                    Type a question about eco-friendly products, carbon footprint, sustainable materials, or describe a product to get a full environmental analysis.
                   </p>
-                </div>
-                
-                <div className="w-full max-w-2xl mt-8">
-                  <EcoFacts />
-                </div>
-
-                {/* Suggestions */}
-                <div className="pt-8">
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Try asking about</p>
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {["Disposable Plastic Water Bottle", "Fast Fashion Cotton T-Shirt", "Smartphone Case", "Is bamboo packaging actually sustainable?"].map((suggestion, i) => (
-                      <button
-                        key={i}
-                        onClick={() => handleChipClick(suggestion)}
-                        className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-sm font-medium text-slate-600 dark:text-slate-300 hover:border-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:shadow-sm transition-all"
-                      >
-                        {suggestion}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               </div>
             )}
@@ -731,21 +711,21 @@ export const App: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setActiveTab('simple')}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
                     activeTab === 'simple'
-                      ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:text-emerald-600 hover:border-emerald-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300'
                   }`}
                 >
-                  Message
+                  Ask / Describe
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveTab('structured')}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
                     activeTab === 'structured'
-                      ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:text-emerald-600 hover:border-emerald-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300'
                   }`}
                 >
                   Product Form
@@ -796,7 +776,7 @@ export const App: React.FC = () => {
                       e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
                     }}
                     onKeyDown={handleKeyDown}
-                    placeholder={imageFile ? "  \n\nAdd details about the image..." : "Paste a product link, or ask a question... (Enter to send)"}
+                    placeholder="Ask an eco question or describe a product... (Enter to send)"
                     disabled={isLoading}
                     className="w-full pl-4 pr-12 py-3.5 rounded-2xl border-2 border-slate-200 dark:border-slate-700 focus:ring-0 focus:border-emerald-500 bg-white/50 dark:bg-slate-800/50 outline-none transition-all placeholder-slate-400 dark:placeholder-slate-500 resize-none text-sm md:text-base leading-relaxed shadow-inner-sm max-h-[120px] custom-scrollbar"
                   />
