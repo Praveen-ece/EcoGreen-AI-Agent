@@ -12,7 +12,7 @@ import ComparisonTable from './components/ComparisonTable';
 import BestChoiceBanner from './components/BestChoiceBanner';
 import GreenTipsList from './components/GreenTipsList';
 import LoadingState from './components/LoadingState';
-import EcoFacts from './components/EcoFacts';
+
 import LoginPage from './pages/LoginPage';
 
 import { useTheme } from './contexts/ThemeContext';
@@ -385,10 +385,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleChipClick = (suggestion: string) => {
-    setInputValue(suggestion);
-    textareaRef.current?.focus();
-  };
+
 
   const visibleSessions = showAllHistory ? sessions : sessions.slice(0, 5);
 
